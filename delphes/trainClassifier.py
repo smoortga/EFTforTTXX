@@ -152,7 +152,7 @@ def main():
     gROOT.SetBatch(1)
 
     parser = ArgumentParser()
-    parser.add_argument('--nepoch', type=int, default=100,help='number of epochs to run the training for')
+    parser.add_argument('--nepoch', type=int, default=50,help='number of epochs to run the training for')
     parser.add_argument('--TrainingFile', default = "", help='path to training')
     parser.add_argument('--InputDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_Wed15Nov2017_15h36m34s", help='path to the converted delphes files')
     #parser.add_argument('--tag', default=time.strftime("%a%d%b%Y_%Hh%Mm%Ss"),help='name of output directory')
@@ -237,6 +237,8 @@ def main():
     
     scaler = StandardScaler()
     scaler.fit(X)
+    if not os.path.isdir(args.InputDir + "/training_output"): os.mkdir(args.InputDir + "/training_output")
+    pickle.dump(scaler,open(args.InputDir + "/training_output/scaler.pkl",'wb'))
         
     X_train, X_test , y_train, y_test, Y_train, Y_test = train_test_split(X, y, Y, test_size=0.2)
     X_train = scaler.transform(X_train)
