@@ -87,7 +87,7 @@ def main():
     parser = ArgumentParser()
     #parser.add_argument('--ncpu', type=int, default=-1,help='number of CPU to use in parallel')
     #parser.add_argument('--InputDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_Wed15Nov2017_15h36m34s", help='path to the converted delphes files')
-    parser.add_argument('--InputDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_Wed15Nov2017_15h36m34s", help='path to the converted delphes files')
+    parser.add_argument('--InputDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_DILEPTON", help='path to the converted delphes files')
     #parser.add_argument('--tag', default=time.strftime("%a%d%b%Y_%Hh%Mm%Ss"),help='name of output directory')
     args = parser.parse_args()
 
@@ -97,14 +97,14 @@ def main():
     
     chain_dict = {}
     for c in couplings:
-        chain_dict.update({c:TChain("")})
+        chain_dict.update({c:TChain("tree")})
     #SM_chain = TChain("")
     #C1tu_chain = TChain("")
     print chain_dict
 
     for f in files:
         if "Order0" in f: chain_dict["SM"].Add(args.InputDir + "/" + f)
-        else:
+        elif "Order2" in f:
             coupling_name = f.split("_")[0][:-3]
             chain_dict[coupling_name].Add(args.InputDir + "/" + f)
 

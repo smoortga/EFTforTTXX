@@ -154,7 +154,7 @@ def main():
     parser = ArgumentParser()
     parser.add_argument('--nepoch', type=int, default=50,help='number of epochs to run the training for')
     parser.add_argument('--TrainingFile', default = "", help='path to training')
-    parser.add_argument('--InputDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_Wed15Nov2017_15h36m34s", help='path to the converted delphes files')
+    parser.add_argument('--InputDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_DILEPTON", help='path to the converted delphes files')
     #parser.add_argument('--tag', default=time.strftime("%a%d%b%Y_%Hh%Mm%Ss"),help='name of output directory')
     args = parser.parse_args()
     
@@ -190,14 +190,14 @@ def main():
     
     chain_dict = {}
     for c in couplings:
-        chain_dict.update({c:TChain("")})
+        chain_dict.update({c:TChain("tree")})
     #SM_chain = TChain("")
     #C1tu_chain = TChain("")
 
 
     for f in files:
         if "Order0" in f: chain_dict["SM"].Add(args.InputDir + "/" + f)
-        else:
+        elif "Order2" in f:
             coupling_name = f.split("_")[0][:-3]
             if coupling_name in couplings: chain_dict[coupling_name].Add(args.InputDir + "/" + f)
 
