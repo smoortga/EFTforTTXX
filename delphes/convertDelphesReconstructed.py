@@ -27,10 +27,10 @@ def Convert(infilepath, outfilepath):
     nEntries = treeReader.GetEntries()
     
     branchJet = treeReader.UseBranch("Jet")
-    branchGenJet = treeReader.UseBranch("GenJet")
+   # branchGenJet = treeReader.UseBranch("GenJet")
     branchElectron = treeReader.UseBranch("Electron")
     branchMuon = treeReader.UseBranch("Muon")
-    branchParticle = treeReader.UseBranch("Particle")
+    #branchParticle = treeReader.UseBranch("Particle")
     
     #############
     # output
@@ -45,7 +45,7 @@ def Convert(infilepath, outfilepath):
     dict_variableName_Leaves.update({"m_b1b2": [array('d', [0]),"D"]})
     dict_variableName_Leaves.update({"m_l1l2": [array('d', [0]),"D"]})
     dict_variableName_Leaves.update({"m_c1c2b1b2": [array('d', [0]),"D"]})
-    #dict_variableName_Leaves.update({"m_c1c2b1b2l1l2": [array('d', [0]),"D"]})
+    dict_variableName_Leaves.update({"m_c1c2b1b2l1l2": [array('d', [0]),"D"]})
     dict_variableName_Leaves.update({"deltaR_c1c2": [array('d', [0]),"D"]})
     dict_variableName_Leaves.update({"deltaR_b1l1": [array('d', [0]),"D"]})
     dict_variableName_Leaves.update({"deltaR_b2l2": [array('d', [0]),"D"]})
@@ -136,17 +136,17 @@ def Convert(infilepath, outfilepath):
             elif jet.Flavor == 5 and particle_dict["b2"][1] == True and jet.PT > particle_dict["b2"][0].Pt():
                 particle_dict["b2"][0].SetPtEtaPhiM(jet.PT,jet.Eta,jet.Phi,jet.Mass)
             # additional jets
-            if jet.Flavor != 5 and particle_dict["add1"][1] == False:
+            elif particle_dict["add1"][1] == False:
                 particle_dict["add1"][0].SetPtEtaPhiM(jet.PT,jet.Eta,jet.Phi,jet.Mass)
                 particle_dict["add1"][1] = True
-            elif jet.Flavor != 5 and particle_dict["add1"][1] == True and jet.PT > particle_dict["add1"][0].Pt():
+            elif particle_dict["add1"][1] == True and jet.PT > particle_dict["add1"][0].Pt():
                 particle_dict["add2"][0] = ROOT.TLorentzVector(particle_dict["add1"][0])
                 particle_dict["add2"][1] = True
                 particle_dict["add1"][0].SetPtEtaPhiM(jet.PT,jet.Eta,jet.Phi,jet.Mass)
-            elif jet.Flavor != 5 and particle_dict["add2"][1] == False:
+            elif particle_dict["add2"][1] == False:
                 particle_dict["add2"][0].SetPtEtaPhiM(jet.PT,jet.Eta,jet.Phi,jet.Mass)
                 particle_dict["add2"][1] = True
-            elif jet.Flavor != 5 and particle_dict["add2"][1] == True and jet.PT > particle_dict["add2"][0].Pt():
+            elif particle_dict["add2"][1] == True and jet.PT > particle_dict["add2"][0].Pt():
                 particle_dict["add2"][0].SetPtEtaPhiM(jet.PT,jet.Eta,jet.Phi,jet.Mass)
                      
         
@@ -183,28 +183,29 @@ def Convert(infilepath, outfilepath):
         if particle_dict["add2"][0].Pt() > particle_dict["add1"][0].Pt():
             save = ROOT.TLorentzVector()
             save.SetPtEtaPhiE(particle_dict["add1"][0].Pt(),particle_dict["add1"][0].Eta(),particle_dict["add1"][0].Phi(),particle_dict["add1"][0].E())
-            particle_dict["add1"][0] = particle_dict["add2"][0]
-            particle_dict["add2"][0] = save
+            particle_dict["add1"][0] = ROOT.TLorentzVector(particle_dict["add2"][0])
+            particle_dict["add2"][0] = ROOT.TLorentzVector(save)
 
         if particle_dict["b2"][0].Pt() > particle_dict["b1"][0].Pt():
             save = ROOT.TLorentzVector()
             save.SetPtEtaPhiE(particle_dict["b1"][0].Pt(),particle_dict["b1"][0].Eta(),particle_dict["b1"][0].Phi(),particle_dict["b1"][0].E())
-            particle_dict["b1"][0] = particle_dict["b2"][0]
-            particle_dict["b2"][0] = save
+            particle_dict["b1"][0] = ROOT.TLorentzVector(particle_dict["b2"][0])
+            particle_dict["b2"][0] = ROOT.TLorentzVector(save)
 
         if particle_dict["l2"][0].DeltaR(particle_dict["b1"][0]) < particle_dict["l1"][0].DeltaR(particle_dict["b1"][0]):
             save = ROOT.TLorentzVector()
             save.SetPtEtaPhiE(particle_dict["l1"][0].Pt(),particle_dict["l1"][0].Eta(),particle_dict["l1"][0].Phi(),particle_dict["l1"][0].E())
-            particle_dict["l1"][0] = particle_dict["l2"][0]
-            particle_dict["l2"][0] = save
+            particle_dict["l1"][0] = ROOT.TLorentzVector(particle_dict["l2"][0])
+            particle_dict["l2"][0] = ROOT.TLorentzVector(save)
         
-        cutoff_scale = 4000
+        cutoff_scale = 3000
         if (particle_dict["add1"][0]+ particle_dict["add2"][0]).M() > cutoff_scale: continue
         if (particle_dict["b1"][0]+ particle_dict["l1"][0]).M() > cutoff_scale: continue
         if (particle_dict["b2"][0]+ particle_dict["l2"][0]).M() > cutoff_scale: continue
         if (particle_dict["b1"][0]+ particle_dict["b2"][0]).M() > cutoff_scale: continue
         if (particle_dict["l1"][0]+ particle_dict["l2"][0]).M() > cutoff_scale: continue
         if (particle_dict["add1"][0]+ particle_dict["add2"][0]+particle_dict["b1"][0]+ particle_dict["b2"][0]).M()  > cutoff_scale: continue
+        if (particle_dict["add1"][0]+ particle_dict["add2"][0]+particle_dict["b1"][0]+ particle_dict["b2"][0]+ particle_dict["l1"][0]+ particle_dict["l2"][0]).M() > cutoff_scale: continue
         if particle_dict["add1"][0].Pt() > cutoff_scale: continue
         if particle_dict["add2"][0].Pt() > cutoff_scale: continue
         if particle_dict["b1"][0].Pt() > cutoff_scale: continue
@@ -220,7 +221,7 @@ def Convert(infilepath, outfilepath):
         dict_variableName_Leaves["m_b1b2"][0][0] = (particle_dict["b1"][0]+ particle_dict["b2"][0]).M()
         dict_variableName_Leaves["m_l1l2"][0][0] = (particle_dict["l1"][0]+ particle_dict["l2"][0]).M()
         dict_variableName_Leaves["m_c1c2b1b2"][0][0] = (particle_dict["add1"][0]+ particle_dict["add2"][0]+particle_dict["b1"][0]+ particle_dict["b2"][0]).M()
-        #dict_variableName_Leaves["m_c1c2b1b2l1l2"][0][0] = (particle_dict["add1"][0]+ particle_dict["add2"][0]+particle_dict["b1"][0]+ particle_dict["b2"][0]+ particle_dict["l1"][0]+ particle_dict["l2"][0]).M()
+        dict_variableName_Leaves["m_c1c2b1b2l1l2"][0][0] = (particle_dict["add1"][0]+ particle_dict["add2"][0]+particle_dict["b1"][0]+ particle_dict["b2"][0]+ particle_dict["l1"][0]+ particle_dict["l2"][0]).M()
         dict_variableName_Leaves["deltaR_c1c2"][0][0] = particle_dict["add1"][0].DeltaR(particle_dict["add2"][0])
         dict_variableName_Leaves["deltaR_b1l1"][0][0] = particle_dict["b1"][0].DeltaR(particle_dict["l1"][0])
         dict_variableName_Leaves["deltaR_b2l2"][0][0] = particle_dict["b2"][0].DeltaR(particle_dict["l2"][0])
@@ -240,6 +241,15 @@ def Convert(infilepath, outfilepath):
     otree.Write()
     
     ofile.Close()
+    
+    del treeReader
+    del chain
+    del branchJet
+    #del branchGenJet
+    del branchElectron
+    del branchMuon
+    #del branchParticle
+
     
     print "%s: DONE"%(infilepath.split("/")[-4] + "_" + infilepath.split("/")[-2])
 
@@ -262,7 +272,7 @@ def main():
     
     parser = ArgumentParser()
     parser.add_argument('--ncpu', type=int, default=-1,help='number of CPU to use in parallel')
-    parser.add_argument('--InputDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/MODELSCAN_ttcc_inclusive_perOrder", help='path to the directory of all restricted processes')
+    parser.add_argument('--InputDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/MODELSCAN_ttcc_DiLepton_Training_WithInterference", help='path to the directory of all restricted processes')
     parser.add_argument('--tag', default=time.strftime("%a%d%b%Y_%Hh%Mm%Ss"),help='name of output directory')
     args = parser.parse_args()
 
@@ -276,7 +286,7 @@ def main():
     p = multiprocessing.Pool(parallelProcesses)
     print "Using %i parallel processes" %parallelProcesses
     
-    coupling_dirs = [i for i in os.listdir(args.InputDir)]
+    coupling_dirs = [i for i in os.listdir(args.InputDir) if os.path.isdir(args.InputDir+"/"+i)]
     for coupling in coupling_dirs:
         order_dirs = os.listdir(args.InputDir + "/" + coupling)
         for order in order_dirs:

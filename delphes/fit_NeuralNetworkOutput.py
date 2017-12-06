@@ -13,25 +13,35 @@ import pickle
 
 parser = ArgumentParser()
 
-parser.add_argument('--InputDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/MODELSCAN_ttcc_inclusive_perOrder_validation", help='path to the directory of all restricted processes')
-parser.add_argument('--ValidationDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_validation", help='path to the directory of all restricted processes')
+parser.add_argument('--InputDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/MODELSCAN_ttcc_inclusive_perOrder_DiLepton_LHCTOPWG", help='path to the directory of all restricted processes')
+parser.add_argument('--ValidationDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_LHCTOPWG", help='path to the directory of all restricted processes')
 parser.add_argument('--SMxsecDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0_backup/MODEL_ttcc_inclusive_SMRestrictedMassAndCabibbo", help='path to the directory of SM-like xsec measurement')
-parser.add_argument('--TrainingFile', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_Wed15Nov2017_15h36m34s/training_output/model_checkpoint_save.hdf5", help='path to the directory of SM-like xsec measurement')
-parser.add_argument('--ScalerFile', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_Wed15Nov2017_15h36m34s/training_output/scaler.pkl", help='path to the directory of SM-like xsec measurement')
+parser.add_argument('--TrainingFile', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_DILEPTON/training_output/model_checkpoint_save.hdf5", help='path to the directory of SM-like xsec measurement')
+parser.add_argument('--ScalerFile', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_DILEPTON/training_output/scaler.pkl", help='path to the directory of SM-like xsec measurement')
 
 args = parser.parse_args()
 
 
-def NN_validate(filename,class_number=1,cut=0.):
-    X = rootnp.root2array(args.ValidationDir + "/" + filename,"tree")
+
+def NN_validate(filename,class_number=1,cut=0.,original_n_events = 50000):
+    X = rootnp.root2array(args.ValidationDir + "/" + filename[0],"tree")
     X = rootnp.rec2array(X)
+    for i in range(len(filename)):
+        if i == 0: continue
+        X_ = rootnp.root2array(args.ValidationDir + "/" + filename[i],"tree")
+        X_ = rootnp.rec2array(X_)
+        X = np.concatenate((X,X_))
     model = load_model(args.TrainingFile)
     scaler = pickle.load(open(args.ScalerFile,'r'))
     X = scaler.transform(X)
     discr = model.predict(X)[:,class_number]
     nEvents = len(discr)
+    print float(len(discr)), float(len(filename)*original_n_events), 100*float(len(discr))/float(len(filename)*original_n_events),"%"
     discr = discr[discr >= cut]
-    return float(len(discr))/float(nEvents)
+    #print 100*float(len(discr))/float(nEvents)
+    #print ""
+    #print filename, float(len(discr)),"/",float(len(filename)*original_n_events),"%"
+    return float(len(discr))/float(len(filename)*original_n_events)
 
 def extract_coupling(coupling,val):
     """ extract the numeric value of a coupling in the directory name"""
@@ -77,7 +87,7 @@ sm_xsec =  float(lines[-1].split(" ")[2])
 sm_xsec_error = float(lines[-1].split(" ")[3])
 fsm_.close()
 
-
+nevents=[50000]
 
 result_dict = {}
 
@@ -106,31 +116,33 @@ for coupling,orders in process_dict.iteritems():
         ##################
         
         filelist = validation_files[coupling+"1p0"][o.split("_")[1]]
-        frac_passing_evts = [NN_validate(filelist[i],class_number=1,cut=0.3) for i in range(len(filelist))]
+        #filelist = validation_files[coupling][o.split("_")[1]]
+        frac_passing_evts = NN_validate(filelist,class_number=1,cut=0.3,original_n_events = nevents[0])
         result_dict[coupling][o.split("_")[1]] = [xsec,xsec_error,frac_passing_evts]
         
 if not os.path.isdir(args.ValidationDir + "/validation_output"): os.mkdir(args.ValidationDir + "/validation_output")
 pickle.dump(result_dict,open(args.ValidationDir + "/validation_output/result_dict.pkl",'wb'))
 #result_dict = pickle.load(open(args.ValidationDir + "/validation_output/result_dict.pkl",'r'))
 
-nevents=[10000]
+
 
 
 # find out the mean of the SM contributions as an average value
 sm_values = []
 for coupling,orders in result_dict.iteritems():
     for o,results in orders.iteritems():
-        if "Order0" in o: sm_values.append(results[0]*results[2][0])
+        if "Order0" in o: sm_values.append(results[0]*results[2])
 sm_xsec = np.mean(np.asarray(sm_values))
 sm_xsec_error = np.std(np.asarray(sm_values))
     
 # sm_xsec = 0.23
 # sm_xsec_error = 0.01
 
-fracerr_measured_sm = 0.5
+fracerr_measured_sm = 0.2
 
 # define a file for the limits to be stored: 
-limits_file = open('%s/limits.txt'%(args.InputDir),"w")
+limits_file = open('%s/limits_NN_class1_cut0p3.txt'%(args.InputDir),"w")
+#limits_file = open('%s/limits_nocut.txt'%(args.InputDir),"w")
 limits_file.write("fractional error on SM measurement: %i %% \n"%int(100*fracerr_measured_sm))
 
 for coupling,orders in result_dict.iteritems():
@@ -138,8 +150,8 @@ for coupling,orders in result_dict.iteritems():
     errors = [0,0,0,0,0]
     for o,results in orders.iteritems():
         o_int = int(o[-1])
-        coeff[o_int] = results[0]*results[2][0]
-        errors[o_int] = results[1]*results[2][0]
+        coeff[o_int] = results[0]*results[2]
+        errors[o_int] = results[1]*results[2]
     for o,results in orders.iteritems():
         o_int = int(o[-1])
         if o_int != 0:
@@ -182,9 +194,10 @@ for coupling,orders in result_dict.iteritems():
     plt.fill_between(x,ydown,yup, facecolor='blue', alpha = 0.2, label=r'fit $\pm 1\sigma$')
     plt.plot(x,y,c="r",label='fit')
     plt.fill_between(x, sm_xsec - fracerr_measured_sm*sm_xsec, sm_xsec + fracerr_measured_sm*sm_xsec, facecolor='green', alpha=0.3, label=r'SM $\pm$ '+str(100*fracerr_measured_sm)+'%')
+    plt.fill_between(x, sm_xsec - 2*fracerr_measured_sm*sm_xsec, sm_xsec + 2*fracerr_measured_sm*sm_xsec, facecolor='yellow', alpha=0.3, label=r'SM $\pm$ '+str(200*fracerr_measured_sm)+'%')
     # get limits
     p = P.fit(x, ydown, 4)
-    roots = sorted([i.real for i in (p - (sm_xsec + fracerr_measured_sm*sm_xsec)).roots() if i.imag == 0])
+    roots = sorted([i.real for i in (p - (sm_xsec + 2*fracerr_measured_sm*sm_xsec)).roots() if i.imag == 0])
     while len(roots)>2: roots = roots[1:-1]
     plt.axvline(x=roots[0], linestyle="dashed", linewidth=2, color="navy")
     plt.axvline(x=roots[1], linestyle="dashed", linewidth=2, color="navy")
