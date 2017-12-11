@@ -8,7 +8,7 @@ from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.polynomial import Polynomial as P
-from numpy.random import normal, poisson
+from numpy.random import normal
 
 
 def extract_xsec(dir,c,v):
@@ -40,88 +40,68 @@ def convert_coupling_toNumerical(v):
     else: return float(v.replace("p","."))
 
         
-def func(x, a, b, c, d, e):
-        return (a + b*x + c*x*x + d*x*x*x + e*x*x*x*x)        
+def func2(x, a, b, c):
+        return (a + b*x + c*x*x)   
+
+def func4(x, a, b, c, d, e):
+        return (a + b*x + c*x*x + d*x*x*x + e*x*x*x*x)      
 
 
-def fitTemplate(data_hist,EFT_templ,SM_templ,coupl_name, coupl_value, savedir, xaxis_title = "NN output",SM_unc=0.2):
-
+def fitTemplate(data_hist,EFT_templ,SM_templ,coupl_name, coupl_value, savedir, xaxis_title = "NN output",SM_unc=0.2,npseudo=100):
+    ROOT.gErrorIgnoreLevel = ROOT.kWarning
+    ROOT.RooMsgService.instance().setGlobalKillBelow(ROOT.RooFit.ERROR)
+    #ROOT.gROOT.ProcessLine( "gErrorIgnoreLevel = 2001;")
+    #m = ROOT.RooMinuit()
+    #m.setPrintLevel(-1)
     #########################
     #
     # Add uncertainty to the data
     #
     #########################
-    frac_error = SM_unc 
-    for bin in range(data_hist.GetNbinsX()):
-        content = data_hist.GetBinContent(bin+1)
-        if content != 0:
-            random_var = normal(0,frac_error*content)
-            data_hist.SetBinContent(bin+1,content+random_var)
-            data_hist.SetBinError(bin+1,data_hist.GetBinError(bin+1)+data_hist.GetBinContent(bin+1)*frac_error)
+    fitted_EFT_arr = []
+    fitted_SM_arr = []
+    for i in range(npseudo):
+        pseudo_data_hist = data_hist.Clone()
+        frac_error = SM_unc 
+        for bin in range(pseudo_data_hist.GetNbinsX()):
+            content = pseudo_data_hist.GetBinContent(bin+1)
+            if content != 0:
+                random_var = normal(0,frac_error*content)
+                pseudo_data_hist.SetBinContent(bin+1,content+random_var)
+                pseudo_data_hist.SetBinError(bin+1,pseudo_data_hist.GetBinError(bin+1)+pseudo_data_hist.GetBinContent(bin+1)*frac_error)
+    
+    
+    
+        #print SM_templ.GetXaxis().GetBinLowEdge(1), SM_templ.GetXaxis().GetBinUpEdge(SM_templ.GetNbinsX())
+        var = ROOT.RooRealVar("var","var",SM_templ.GetXaxis().GetBinLowEdge(1),SM_templ.GetXaxis().GetBinUpEdge(SM_templ.GetNbinsX()))
+        SM_Hist = ROOT.RooDataHist("SM_Hist","SM_Hist",ROOT.RooArgList(var),SM_templ)
+        SM_PDF = ROOT.RooHistPdf("SM_PDF","SM_PDF",ROOT.RooArgSet(var),SM_Hist)
+        EFT_Hist = ROOT.RooDataHist("EFT_Hist","EFT_Hist",ROOT.RooArgList(var),EFT_templ)
+        EFT_PDF = ROOT.RooHistPdf("EFT_PDF","EFT_PDF",ROOT.RooArgSet(var),EFT_Hist)
+        data_Hist = ROOT.RooDataHist("pseudo_data_hist","pseudo_data_hist",ROOT.RooArgList(var),pseudo_data_hist)
+        data_PDF = ROOT.RooHistPdf("data_PDF","data_PDF",ROOT.RooArgSet(var),data_Hist)
+    
+    
+    
+        N_SM = ROOT.RooRealVar("N_SM","N_SM",pseudo_data_hist.Integral(),0,5*(pseudo_data_hist.Integral())) 
+        N_EFT = ROOT.RooRealVar("N_EFT","N_EFT",pseudo_data_hist.Integral(),0,5*(pseudo_data_hist.Integral()))
+        mod = ROOT.RooAddPdf("mod","mod",ROOT.RooArgList(SM_PDF,EFT_PDF),ROOT.RooArgList(N_SM,N_EFT)); 
+    
+        fitRes = mod.fitTo(data_Hist,ROOT.RooFit.SumW2Error(True), ROOT.RooFit.PrintLevel(-1000), ROOT.RooFit.Verbose(False), ROOT.RooFit.Extended(True), ROOT.RooFit.Save())
+
+        fitted_EFT = N_EFT.getVal()
+        sigma_fitted_EFT = N_EFT.getError()
+        fitted_SM = N_SM.getVal()
+        sigma_fitted_SM = N_SM.getError()
         
-    #########################
-    #
-    # Plot the prefitted histos/teplates
-    #
-    #########################
-    # c_prefit = ROOT.TCanvas("c_prefit","c_prefit",600,500)
-#     c_prefit.cd()
-#     ROOT.gPad.SetMargin(0.15,0.1,0.15,0.1)
-#     EFT_templ.SetFillColor(4)
-#     EFT_templ.SetLineWidth(0)
-#     #EFT_templ.Draw("hist")
-#     SM_templ.SetFillColor(2)
-#     SM_templ.SetLineWidth(0)
-#     #SM_templ.Draw("same hist")
-#     stack_prefit = ROOT.THStack("stack_prefit","")
-#     stack_prefit.Add(EFT_templ)
-#     stack_prefit.Add(SM_templ)
-#     stack_prefit.SetMinimum(0)
-#     stack_prefit.SetMaximum(2*stack_prefit.GetMaximum())
-#     stack_prefit.Draw("hist")
-#     stack_prefit.GetXaxis().SetTitle(xaxis_title)
-#     stack_prefit.GetXaxis().SetTitleOffset(1.2)
-#     stack_prefit.GetXaxis().SetTitleSize(0.055)
-#     stack_prefit.GetYaxis().SetTitle("Entries")
-#     stack_prefit.GetYaxis().SetTitleOffset(1.2)
-#     stack_prefit.GetYaxis().SetTitleSize(0.055)
-#     data_hist.SetMarkerStyle(20)
-#     data_hist.SetMarkerSize(1)
-#     data_hist.SetLineWidth(2)
-#     data_hist.Draw("same pX1E1")
-#     l_prefit = ROOT.TLegend(0.5,0.65,0.9,0.9)
-#     l_prefit.SetHeader("prefit")
-#     l_prefit.AddEntry(EFT_templ,"EFT template","f")
-#     l_prefit.AddEntry(SM_templ,"SM template","f")
-#     l_prefit.AddEntry(data_hist,"data","pe")
-#     l_prefit.Draw("same")
-#     c_prefit.SaveAs("prefit.pdf")
+        fitted_EFT_arr.append(fitted_EFT)
+        fitted_SM_arr.append(fitted_SM)
     
-    
-    
-    #print SM_templ.GetXaxis().GetBinLowEdge(1), SM_templ.GetXaxis().GetBinUpEdge(SM_templ.GetNbinsX())
-    var = ROOT.RooRealVar("var","var",SM_templ.GetXaxis().GetBinLowEdge(1),SM_templ.GetXaxis().GetBinUpEdge(SM_templ.GetNbinsX()))
-    SM_Hist = ROOT.RooDataHist("SM_Hist","SM_Hist",ROOT.RooArgList(var),SM_templ)
-    SM_PDF = ROOT.RooHistPdf("SM_PDF","SM_PDF",ROOT.RooArgSet(var),SM_Hist)
-    EFT_Hist = ROOT.RooDataHist("EFT_Hist","EFT_Hist",ROOT.RooArgList(var),EFT_templ)
-    EFT_PDF = ROOT.RooHistPdf("EFT_PDF","EFT_PDF",ROOT.RooArgSet(var),EFT_Hist)
-    data_Hist = ROOT.RooDataHist("data_Hist","data_Hist",ROOT.RooArgList(var),data_hist)
-    data_PDF = ROOT.RooHistPdf("data_PDF","data_PDF",ROOT.RooArgSet(var),data_Hist)
-    
-    
-    
-    N_SM = ROOT.RooRealVar("N_SM","N_SM",data_hist.Integral(),0,5*(data_hist.Integral())) 
-    N_EFT = ROOT.RooRealVar("N_EFT","N_EFT",data_hist.Integral(),0,5*(data_hist.Integral()))
-    mod = ROOT.RooAddPdf("mod","mod",ROOT.RooArgList(SM_PDF,EFT_PDF),ROOT.RooArgList(N_SM,N_EFT)); 
-    
-    fitRes = mod.fitTo(data_Hist,ROOT.RooFit.SumW2Error(True), ROOT.RooFit.PrintLevel(-3), ROOT.RooFit.Verbose(False), ROOT.RooFit.Extended(True), ROOT.RooFit.Save())
-
-    fitted_EFT = N_EFT.getVal()
-    sigma_fitted_EFT = N_EFT.getError()
-    fitted_SM = N_SM.getVal()
-    sigma_fitted_SM = N_SM.getError()
-
-    print fitted_EFT,sigma_fitted_EFT , fitted_SM, sigma_fitted_SM
+    mean_fitted_EFT = np.mean(np.asarray(fitted_EFT_arr))
+    err_fitted_EFT = np.std(np.asarray(fitted_EFT_arr))
+    mean_fitted_SM = np.mean(np.asarray(fitted_SM_arr))
+    err_fitted_SM = np.std(np.asarray(fitted_SM_arr))
+    print mean_fitted_EFT,err_fitted_EFT , mean_fitted_SM, err_fitted_SM
     
     #########################
     #
@@ -151,15 +131,15 @@ def fitTemplate(data_hist,EFT_templ,SM_templ,coupl_name, coupl_value, savedir, x
     stack_postfit.GetYaxis().SetTitle("Entries")
     stack_postfit.GetYaxis().SetTitleOffset(1.2)
     stack_postfit.GetYaxis().SetTitleSize(0.055)
-    data_hist.SetMarkerStyle(20)
-    data_hist.SetMarkerSize(1)
-    data_hist.SetLineWidth(2)
-    data_hist.Draw("same pX1E1")
+    pseudo_data_hist.SetMarkerStyle(20)
+    pseudo_data_hist.SetMarkerSize(1)
+    pseudo_data_hist.SetLineWidth(2)
+    pseudo_data_hist.Draw("same pX1E1")
     l_postfit = ROOT.TLegend(0.5,0.65,0.9,0.9)
     l_postfit.SetHeader("postfit")
     l_postfit.AddEntry(EFT_templ_copy,"EFT template","f")
     l_postfit.AddEntry(SM_templ_copy,"SM template","f")
-    l_postfit.AddEntry(data_hist,"data","pe")
+    l_postfit.AddEntry(pseudo_data_hist,"data","pe")
     l_postfit.Draw("same")
     t = ROOT.TPaveText(0.16,0.7,0.49,0.89,"NDC")
     t.SetTextSize(0.04)
@@ -173,9 +153,9 @@ def fitTemplate(data_hist,EFT_templ,SM_templ,coupl_name, coupl_value, savedir, x
     t2.AddText("coupling: %s, value: %s"%(coupl_name, coupl_value))
     t2.Draw("same")
     c_postfit.SaveAs("%s/postfit_%s_%s.pdf"%(savedir,coupl_name, coupl_value))
-    #print "Saved fitted output histograms in %s/postfit_%s_%s.pdf"%(savedir,coupl_name, coupl_value)
+    print "Saved fitted output histograms in %s/postfit_%s_%s.pdf"%(savedir,coupl_name, coupl_value)
     
-    return fitted_EFT,sigma_fitted_EFT , fitted_SM, sigma_fitted_SM
+    return mean_fitted_EFT,err_fitted_EFT , mean_fitted_SM, err_fitted_SM
     
     
 
@@ -256,7 +236,7 @@ def main():
             xsec[coupl_value] = extract_xsec(args.XsecDir,c,coupl_value)*1000
             original_nevents[coupl_value] = get_Original_nevents(args.ValidationDir,c,coupl_value,nevents)
             if coupl_value == "0p0":
-                fitted_EFT,sigma_fitted_EFT , fitted_SM, sigma_fitted_SM = fitTemplate(h,templates[c+"1p0"],templates["SM"],c,coupl_value,args.OutputDir)
+                fitted_EFT,sigma_fitted_EFT , fitted_SM, sigma_fitted_SM = fitTemplate(h.Clone(),templates[c+"1p0"].Clone(),templates["SM"].Clone(),c,coupl_value,args.OutputDir)
                 fitting_dict[c][coupl_value]=[fitted_EFT,sigma_fitted_EFT , fitted_SM, sigma_fitted_SM,xsec[coupl_value],original_nevents[coupl_value]]
         
         
@@ -264,8 +244,9 @@ def main():
         for h in histograms:
             name = h.GetName()
             coupl_value = name.split("_")[2]
+            print "Processing %s, %s"%(name,coupl_value)
             if coupl_value == "0p0":continue
-            fitted_EFT,sigma_fitted_EFT , fitted_SM, sigma_fitted_SM = fitTemplate(h,templates[c+coupl_value],templates["SM"],c,coupl_value,args.OutputDir)
+            fitted_EFT,sigma_fitted_EFT , fitted_SM, sigma_fitted_SM = fitTemplate(h.Clone(),templates[c+coupl_value].Clone(),templates["SM"].Clone(),c,coupl_value,args.OutputDir)
             fitting_dict[c][coupl_value]=[fitted_EFT,sigma_fitted_EFT , fitted_SM, sigma_fitted_SM,xsec[coupl_value],original_nevents[coupl_value]]
         
         int_lumi = 100 #fb-1
@@ -276,82 +257,91 @@ def main():
         couplings_numerical = {}
         for v,results in fitting_dict[c].iteritems():
             #if v == "0p0": continue
-            observed[v] = (fitting_dict[c][v][2]+fitting_dict[c][v][0])*int_lumi*fitting_dict[c][v][4]/fitting_dict[c][v][5]
-            #observed[v] = (fitting_dict[c][v][0])*int_lumi*fitting_dict[c][v][4]/fitting_dict[c][v][5]
-            observed_unc[v] = sqrt((fitting_dict[c][v][1]*int_lumi*fitting_dict[c][v][4]/fitting_dict[c][v][5])**2 + (fitting_dict[c][v][3]*int_lumi*fitting_dict[c][v][4]/fitting_dict[c][v][5])**2)
-            #observed_unc[v] = (fitting_dict[c][v][1]*int_lumi*fitting_dict[c][v][4]/fitting_dict[c][v][5])
-            #chi2[v] = (observed[v])**2/observed_unc[v]**2
+            #observed[v] = (fitting_dict[c][v][2]+fitting_dict[c][v][0])*int_lumi*fitting_dict[c][v][4]/fitting_dict[c][v][5]
+            observed[v] = (fitting_dict[c][v][0])*int_lumi*fitting_dict[c][v][4]/fitting_dict[c][v][5]
+            #observed_unc[v] = sqrt((fitting_dict[c][v][1]*int_lumi*fitting_dict[c][v][4]/fitting_dict[c][v][5])**2 + (fitting_dict[c][v][3]*int_lumi*fitting_dict[c][v][4]/fitting_dict[c][v][5])**2)
+            observed_unc[v] = (fitting_dict[c][v][1]*int_lumi*fitting_dict[c][v][4]/fitting_dict[c][v][5])
+            chi2[v] = (observed[v])**2/observed_unc[v]**2
             #chi2[v] = (observed[v]-SM_expected)**2/observed_unc[v]**2
-            chi2[v] = (observed[v]-SM_expected)**2/SM_expected
             couplings_numerical[v]=convert_coupling_toNumerical(v)
         
-        chi2_array = []
+        obs_low95CL = []
+        obs_high95CL = []
+        observed_arr = []
+        unc_arr = []
         c_array= []
-        chi2Error_array=[]
-        for v,res in chi2.iteritems():
-               chi2_array.append(res) 
-               c_array.append(couplings_numerical[v])
-               chi2Error_array.append((2*abs(observed[v]-SM_expected)/SM_expected)*observed_unc[v])
+        for v,res in observed.iteritems():
+            observed_arr.append(res)
+            obs_low95CL.append(res-2*observed_unc[v]) 
+            obs_high95CL.append(res+2*observed_unc[v])
+            c_array.append(couplings_numerical[v]) 
+            unc_arr.append(observed_unc[v])
         
-        print ""
-        print SM_expected
-        print observed
-        print observed_unc
-        print chi2
-        print ""
+        plt.errorbar(c_array, observed_arr, yerr=[[abs(observed_arr[i] - obs_low95CL[i]) for i in range(len(observed_arr))], [abs(observed_arr[i] - obs_high95CL[i]) for i in range(len(observed_arr))]], fmt='o', label='data 95% CL')
         
-        plt.errorbar(c_array, chi2_array, yerr=chi2Error_array, fmt='o')
+        coeff_centr, covmat_centr = curve_fit(func4,c_array,observed_arr,sigma=unc_arr)#,sigma=[0]*len(c_array))#absolute_sigma
+        errors_centr = sqrt(diag(covmat_centr))
+        coeff_up, covmat_up = curve_fit(func4,c_array,obs_high95CL)#,sigma=[0]*len(c_array))#absolute_sigma
+        errors_up = sqrt(diag(covmat_up))
+        coeff_down, covmat_down = curve_fit(func4,c_array,obs_low95CL)#,sigma=[0]*len(c_array))#absolute_sigma
+        errors_down = sqrt(diag(covmat_down))
         
-        
-        # start fitting the chi2
-        coeff, covmat = curve_fit(func,c_array,chi2_array,sigma=chi2Error_array)#,sigma=[0]*len(c_array))#absolute_sigma
-        errors = sqrt(diag(covmat))
-        
-        xmin = -12
-        xmax = +12
-        ymin = 0
-        ymax = max(chi2_array)
+        xmin = -15
+        xmax = +15
+        ymax = max(obs_high95CL)
+        ymin = -ymax/4.
         nsteps = 30
         x = np.arange(xmin, xmax+ float(xmax-xmin)/float(nsteps), float(xmax-xmin)/float(nsteps))
         #y = coeff[0] + coeff[1]*x + coeff[2]*x*x
-        y = coeff[0]+ coeff[1]*x + coeff[2]*x*x + coeff[3]*x*x*x + + coeff[4]*x*x*x*x
-        #yup = (coeff[0]+errors[0])*(1 + (coeff[1]+errors[1])*x + (coeff[2]+errors[2])*x*x)
-        #ydown = (coeff[0]-errors[0])*(1 + (coeff[1]-errors[1])*x + (coeff[2]-errors[2])*x*x)
+        #y_centr = coeff_centr[0]+ coeff_centr[1]*x + coeff_centr[2]*x*x
+        y_centr = func4(x,*(coeff_centr))
+        y_up = func4(x,*(coeff_up))
+        y_down = func4(x,*(coeff_down))
+        #y_up = (coeff_centr[0]+errors_centr[0])*(1 + (coeff_centr[1]+errors_centr[1])*x + (coeff_centr[2]+errors_centr[2])*x*x)
+        #y_down = (coeff_centr[0]-errors_centr[0])*(1 + (coeff_centr[1]-errors_centr[1])*x + (coeff_centr[2]-errors_centr[2])*x*x)
+        #y_up = func2(x,*(coeff_centr + [2*i for i in errors_centr]))
+        #y_down = func2(x,*(coeff_centr - [2*i for i in errors_centr]))
         
-        plt.plot(x,y,c="r",label='fit')
-        plt.axhline(y=3.841, linestyle="dashed", linewidth=2, color="navy")
-        p = P.fit(x, y, 4)
-        roots = sorted([i.real for i in (p - 3.841).roots() if i.imag == 0])
+        plt.plot(x,y_centr,c="r",label='fit',linestyle="dotted")
+        plt.fill_between(x, y_down,y_up, facecolor='green', alpha=0.3, label=r'fitted 95% CL')
+        plt.axhline(y=0, linestyle="dashed", linewidth=2, color="navy")
+        p = P.fit(x, y_down, 4)
+        roots = sorted([i.real for i in (p - 0).roots() if i.imag == 0])
         print roots
         while len(roots)>2: roots = roots[1:-1]
-        #plt.axvline(x=roots[0], linestyle="dashed", linewidth=2, color="navy")
-        #plt.axvline(x=roots[1], linestyle="dashed", linewidth=2, color="navy")
+        plt.axvline(x=roots[0], linestyle="dashed", linewidth=2, color="navy")
+        plt.axvline(x=roots[1], linestyle="dashed", linewidth=2, color="navy")
         plt.legend(loc="upper right")
     
     
         # plot points with error bars
-        # plt.errorbar(coupling_strengths, xsec, yerr = xsec_error, fmt= 'o', color = "b")
+        #plt.errorbar(coupling_strengths, xsec, yerr = xsec_error, fmt= 'o', color = "b")
         #if roots[0] < xmin: plt.axis([roots[0]-1, roots[1]+1, ymin, ymax])
         #else: 
         plt.axis([xmin, xmax, ymin, ymax])
         plt.grid(True)
         plt.xlabel(c, fontsize = 15)
-        plt.ylabel('#chi^{2} value', fontsize = 15)
+        plt.ylabel('fitted number of EFT events', fontsize = 15)
     
         # draw some things on the canvas
         #plt.text(xmin, ymax+(ymax-ymin)/float(20), r'$\sigma=%.4f ( 1 + (%.4f) \ C + (%.4f) \ C^2 )$'%(coeff[0],coeff[1]/coeff[0],coeff[2]/coeff[0]), fontsize=20, color="r")
         #plt.text(xmin, ymax+(ymax-ymin)/float(20), r'$\sigma=%.4f ( 1 + (%.4f) \ C + (%.5f) \ C^2 )$'%(coeff[0],coeff[1],coeff[2]), fontsize=12, color="r")
         #plt.text(xmin + (xmax-xmin)/float(20), ymax-1.5*(ymax-ymin)/float(20), r'%i events'%(sum(nevents.values())), fontsize=17, color="b")
-        #plt.text(roots[0] , ymin+(ymax-ymin)/float(20), "%.2f "%roots[0], fontsize=12, color="navy", ha = 'right')
-        #plt.text(roots[1] , ymin+(ymax-ymin)/float(20), "%.2f "%roots[1], fontsize=12, color="navy", ha = 'right')
+        plt.text(roots[0] , ymin+(ymax-ymin)/float(20), "%.2f "%roots[0], fontsize=12, color="navy", ha = 'right')
+        plt.text(roots[1] , ymin+(ymax-ymin)/float(20), "%.2f "%roots[1], fontsize=12, color="navy", ha = 'right')
         
-        plt.savefig('%s/fit_Chi2_%s.png'%(args.OutputDir,c))
-        plt.savefig('%s/fit_Chi2_%s.pdf'%(args.OutputDir,c))
+        plt.savefig('%s/fit_ConfidenceLevelInterval_%s.png'%(args.OutputDir,c))
+        plt.savefig('%s/fit_ConfidenceLevelInterval_%s.pdf'%(args.OutputDir,c))
         
         plt.cla()
         
-        #limits_file.write("%s & [%.2f,%.2f] \n"%(c,roots[0],roots[1]))  
-        
+        limits_file.write("%s & [%.2f,%.2f] \n"%(c,roots[0],roots[1]))  
+       #  print ""
+#         print SM_expected
+#         print observed
+#         print observed_unc
+#         print chi2
+#         print ""
         
     limits_file.close()    
         
