@@ -7,8 +7,8 @@ from numpy import polyfit, diag, sqrt
 from scipy.optimize import curve_fit
 from numpy.polynomial import Polynomial as P
 import numpy as np
-# import root_numpy as rootnp
-# from keras.models import load_model
+import root_numpy as rootnp
+from keras.models import load_model
 import pickle
 import sys
 import ROOT
@@ -24,6 +24,9 @@ parser = ArgumentParser()
 
 parser.add_argument('--InputDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/MODELSCAN_ttbb_DiLepton_ForValidationPerCouplings_fixed", help='path to the directory of all restricted processes')
 parser.add_argument('--ValidationDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_ttbb_ForValidationPerCouplings_fixed", help='path to the directory of all restricted processes')
+#parser.add_argument('--SMxsecDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0_backup/MODEL_ttcc_inclusive_SMRestrictedMassAndCabibbo", help='path to the directory of SM-like xsec measurement')
+parser.add_argument('--TrainingFile', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_ttbb_Training_fixed/training_output/model_checkpoint_save.hdf5", help='path to the directory of SM-like xsec measurement')
+parser.add_argument('--ScalerFile', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_ttbb_Training_fixed/training_output/scaler.pkl", help='path to the directory of SM-like xsec measurement')
 
 args = parser.parse_args()
 
@@ -33,10 +36,10 @@ classes_dict = { #name:class_number
             "cQQ1": 1,
             "cQQ8": 1,
             #LLRR
-            "cQt1": 3,
-            "cQb1": 3,
-            "cQt8": 3,
-            "cQb8": 3,
+            "cQt1": 2,
+            "cQb1": 1,
+            "cQt8": 2,
+            "cQb8": 1,
             #RRRR
             "ctb1": 2,
             "ctb8": 2
@@ -56,18 +59,36 @@ def convertToLatex(c):
         print "couldn't convert"
         return c  
 
-def GetEventsPassingCut(filelist,variable_name,xmin,xmax,nbins,cut,original_n_events):
-    chain = ROOT.TChain("tree")
-    for f in filelist:
-        chain.Add(args.ValidationDir+"/"+f)
-    #print chain.GetEntries()
-    tmp_hist = ROOT.TH1D("tmp_hist","",nbins,xmin,xmax)
-    chain.Draw(variable_name + " >> tmp_hist")
-    #print tmp_hist.GetEntries()
-    selected_n_events = tmp_hist.Integral(tmp_hist.FindBin(cut),tmp_hist.GetNbinsX()+1)
-    result = float(selected_n_events)/float(original_n_events)
-    print "fracion selected: %.2f%%"%(result*100)
-    return result
+def NN_validate(filename,class_number=1,cut=0.,original_n_events = 20000):
+    X = rootnp.root2array(args.ValidationDir + "/" + filename[0],"tree")
+    X = rootnp.rec2array(X)
+    for i in range(len(filename)):
+        if i == 0: continue
+        X_ = rootnp.root2array(args.ValidationDir + "/" + filename[i],"tree")
+        X_ = rootnp.rec2array(X_)
+        X = np.concatenate((X,X_))
+    model = load_model(args.TrainingFile)
+    scaler = pickle.load(open(args.ScalerFile,'r'))
+    X = scaler.transform(X)
+    if class_number==-1:
+        coupling_name = filename[0].split("_")[0]
+        #print coupling_name
+        coupling_class = classes_dict[coupling_name]
+        discr_dict = {}
+        for class_n in set(i for j,i in classes_dict.iteritems()):
+            discr_dict[class_n] = model.predict(X)[:,class_n]
+        #discr = np.asarray([j for jdx,j in enumerate(discr_dict[coupling_class])])
+        discr = np.asarray([j/(discr_dict[0][jdx]+discr_dict[coupling_class][jdx]) for jdx,j in enumerate(discr_dict[coupling_class])])
+        #discr = np.asarray([(discr_dict[1][jdx]+discr_dict[2][jdx]) for jdx,j in enumerate(discr_dict[1])])
+    else: discr = model.predict(X)[:,class_number]
+    nEvents = len(discr)
+    print float(len(discr)), sum_original_n_events, 100*float(len(discr))/float(original_n_events),"%"
+    discr = discr[discr >= cut]
+    print "selection efficiency NN cut: " ,100*float(len(discr))/float(nEvents)
+    #print ""
+    #print filename, float(len(discr)),"/",float(len(filename)*original_n_events),"%"
+    return float(len(discr))/float(original_n_events)
+
 
 def extract_coupling(coupling,val):
     """ extract the numeric value of a coupling in the directory name"""
@@ -123,46 +144,46 @@ nevents={"run_01":30000,"run_02":0}
 
 result_dict = {}
 
+NNcut = 0.45
 
-# for coupling,orders in process_dict.iteritems():
-#     result_dict[coupling] = {}
-#     for o in sorted(orders):
-#         print "Processing %s %s"%(coupling,extract_coupling(coupling,o))
-#         ##################
-#         #
-#         # Get cross section
-#         #
-#         ##################
-#         if os.path.isfile(args.InputDir + "/" + coupling + "/" + o + "/cross_section.txt"):
-#             f_ = open(args.InputDir + "/" + coupling + "/" + o + "/cross_section.txt", 'r')
-#             lines = f_.readlines()
-#             xsec = float(lines[-1].split(" ")[2])
-#             xsec_error = float(lines[-1].split(" ")[3])
-#         else: continue
-#         #xsec = 0.01
-#         #xsec_error = 0.001
-#         
-#         ##################
-#         #
-#         # NN output
-#         #
-#         ##################
-#         
-#         filelist = validation_files[coupling][extract_coupling_string(coupling,o)]
-#         #filelist = validation_files[coupling][o.split("_")[1]]
-#         if len(filelist) == 0: continue
-#         sum_original_n_events = 0
-#         for f in filelist:
-#             sum_original_n_events += get_Original_nevents(f,nevents)
-#         frac_passing_evts = GetEventsPassingCut(filelist,variable_name = "m_c1c2b1b2",xmin=0,xmax=3000, nbins=1000,cut=600,original_n_events = sum_original_n_events)
-#         result_dict[coupling][extract_coupling_string(coupling,o)] = [xsec,xsec_error,frac_passing_evts, sum_original_n_events]
-#        
-# if not os.path.isdir(args.ValidationDir + "/validation_output"): os.mkdir(args.ValidationDir + "/validation_output")
-# pickle.dump(result_dict,open(args.ValidationDir + "/validation_output/SensitiveVariable_result_dict.pkl",'wb'))
-result_dict = pickle.load(open(args.ValidationDir + "/validation_output/SensitiveVariable_result_dict.pkl",'r'))
+for coupling,orders in process_dict.iteritems():
+    result_dict[coupling] = {}
+    for o in sorted(orders):
+        print "Processing %s %s"%(coupling,extract_coupling(coupling,o))
+        ##################
+        #
+        # Get cross section
+        #
+        ##################
+        if os.path.isfile(args.InputDir + "/" + coupling + "/" + o + "/cross_section.txt"):
+            f_ = open(args.InputDir + "/" + coupling + "/" + o + "/cross_section.txt", 'r')
+            lines = f_.readlines()
+            xsec = float(lines[-1].split(" ")[2])
+            xsec_error = float(lines[-1].split(" ")[3])
+        else: continue
+        #xsec = 0.01
+        #xsec_error = 0.001
+        
+        ##################
+        #
+        # NN output
+        #
+        ##################
+        
+        filelist = validation_files[coupling][extract_coupling_string(coupling,o)]
+        #filelist = validation_files[coupling][o.split("_")[1]]
+        if len(filelist) == 0: continue
+        sum_original_n_events = 0
+        for f in filelist:
+            sum_original_n_events += get_Original_nevents(f,nevents)
+        frac_passing_evts = NN_validate(filelist,class_number=-1,cut=NNcut,original_n_events = sum_original_n_events)
+        result_dict[coupling][extract_coupling_string(coupling,o)] = [xsec,xsec_error,frac_passing_evts, sum_original_n_events]
+       
+if not os.path.isdir(args.ValidationDir + "/validation_output"): os.mkdir(args.ValidationDir + "/validation_output")
+pickle.dump(result_dict,open(args.ValidationDir + "/validation_output/result_dict.pkl",'wb'))
+#result_dict = pickle.load(open(args.ValidationDir + "/validation_output/result_dict.pkl",'r'))
 
-#sys.exit(1)
-
+print "done processing NN outputs"
 
 # find out the mean of the SM contributions as an average value
 # sm_values = []
@@ -180,14 +201,14 @@ sm_xsec_frac_error_300fb = 0.1
 fracerr_measured_sm = sm_xsec_frac_error
 
 # define a file for the limits to be stored: 
-limits_file = open('%s/limits_ttbb_cutonSensitiveVariable.txt'%(args.InputDir),"w")
+limits_file = open('%s/limits_ttbb_cutonNN.txt'%(args.InputDir),"w")
 #limits_file = open('%s/limits_ttbb_NN_Binary_cut0p75.txt'%(args.InputDir),"w")
 #limits_file = open('%s/limits_ttbb_nocut.txt'%(args.InputDir),"w")
 limits_file.write("fractional error on SM measurement: %i %% \n"%int(100*fracerr_measured_sm))
 
 
 for coupling,values in result_dict.iteritems():
-    print coupling
+    if "Discriminator" in coupling: continue
     #if coupling == "cQQ1": continue
     coupling_strengths = []
     xsec = []
@@ -280,7 +301,7 @@ for coupling,values in result_dict.iteritems():
     
     l = ROOT.TLegend(0.35,0.6,0.94,0.88)
     l.SetBorderSize(1)
-    l.AddEntry(gr_data,"sample points (M_{4b} > 600 GeV)","pe1")
+    l.AddEntry(gr_data,"sample points (NN output > %.2f)"%NNcut,"pe1")
     l.AddEntry(gr_fitted_xsec,"fitted cross section","l")
     #l.AddEntry(gr_CMS,"CMS result 95% CL (2.3 fb^{-1})","fl")
     l.AddEntry(gr_CMS_300fb,"CMS prospect 95% CL (300 fb^{-1})","fl")
@@ -359,12 +380,12 @@ for coupling,values in result_dict.iteritems():
     limits_file.write("%s & [%.2f,%.2f] \n"%(coupling,roots_2[0],roots_2[1]))
     #limits_file_300fb.write("%s & [%.2f,%.2f] \n"%(coupling,roots_2[0],roots_2[1]))
     
-    if not os.path.isdir(args.InputDir + "/fitted_xsec_AfterCutOnSensitiveVariable"): os.mkdir(args.InputDir + "/fitted_xsec_AfterCutOnSensitiveVariable")
+    if not os.path.isdir(args.InputDir + "/fitted_xsec_AfterCutOnNN"): os.mkdir(args.InputDir + "/fitted_xsec_AfterCutOnNN")
 
-    c.SaveAs('%s/fitted_xsec_AfterCutOnSensitiveVariable/fit_xsec_AfterCutOnSensitiveVariable_%s.png'%(args.InputDir,coupling))
-    c.SaveAs('%s/fitted_xsec_AfterCutOnSensitiveVariable/fit_xsec_AfterCutOnSensitiveVariable_%s.pdf'%(args.InputDir,coupling))
+    c.SaveAs('%s/fitted_xsec_AfterCutOnNN/fit_xsec_AfterCutOnNN_%s.png'%(args.InputDir,coupling))
+    c.SaveAs('%s/fitted_xsec_AfterCutOnNN/fit_xsec_AfterCutOnNN_%s.pdf'%(args.InputDir,coupling))
     
-    print "done, saved in %s/fitted_xsec_AfterCutOnSensitiveVariable/fit_xsec_AfterCutOnSensitiveVariable_%s.pdf"%(args.InputDir,coupling)
+    print "done, saved in '%s/fitted_xsec_AfterCutOnNN/fit_xsec_AfterCutOnNN_%s.pdf"%(args.InputDir,coupling)
     
 limits_file.close()
 #limits_file_300fb.close() 

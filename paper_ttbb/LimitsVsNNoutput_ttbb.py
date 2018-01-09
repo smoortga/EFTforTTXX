@@ -7,8 +7,8 @@ from numpy import polyfit, diag, sqrt
 from scipy.optimize import curve_fit
 from numpy.polynomial import Polynomial as P
 import numpy as np
-# import root_numpy as rootnp
-# from keras.models import load_model
+import root_numpy as rootnp
+from keras.models import load_model
 import pickle
 import sys
 import ROOT
@@ -25,8 +25,25 @@ parser = ArgumentParser()
 parser.add_argument('--InputDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/MODELSCAN_ttbb_DiLepton_ForValidationPerCouplings_fixed", help='path to the directory of all restricted processes')
 parser.add_argument('--ValidationDir', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_ttbb_ForValidationPerCouplings_fixed", help='path to the directory of all restricted processes')
 parser.add_argument('--coupling', default = "cQb1", help='which coupling to use')
+parser.add_argument('--TrainingFile', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_ttbb_Training_fixed/training_output/model_checkpoint_save.hdf5", help='path to the directory of SM-like xsec measurement')
+parser.add_argument('--ScalerFile', default = "/user/smoortga/Analysis/MG5_aMC_v2_6_0/CONVERTED_DELPHES_ttbb_Training_fixed/training_output/scaler.pkl", help='path to the directory of SM-like xsec measurement')
+
 args = parser.parse_args()
 
+classes_dict = { #name:class_number
+            'SM': 0,
+            #LLLL
+            "cQQ1": 1,
+            "cQQ8": 1,
+            #LLRR
+            "cQt1": 2,
+            "cQb1": 1,
+            "cQt8": 2,
+            "cQb8": 1,
+            #RRRR
+            "ctb1": 2,
+            "ctb8": 2
+        }
 
 def get_Original_nevents(filename,nevents_dict):
     for run,n in nevents_dict.iteritems():
@@ -54,6 +71,39 @@ def GetEventsPassingCut(filelist,variable_name,xmin,xmax,nbins,cut,original_n_ev
     result = float(selected_n_events)/float(original_n_events)
     print "fracion selected: %.2f%%"%(result*100)
     return result
+
+
+def NN_validate(filename,class_number,cuts,original_n_events = 20000):
+    X = rootnp.root2array(args.ValidationDir + "/" + filename[0],"tree")
+    X = rootnp.rec2array(X)
+    for i in range(len(filename)):
+        if i == 0: continue
+        X_ = rootnp.root2array(args.ValidationDir + "/" + filename[i],"tree")
+        X_ = rootnp.rec2array(X_)
+        X = np.concatenate((X,X_))
+    model = load_model(args.TrainingFile)
+    scaler = pickle.load(open(args.ScalerFile,'r'))
+    X = scaler.transform(X)
+    if class_number==-1:
+        coupling_name = filename[0].split("_")[0]
+        #print coupling_name
+        coupling_class = classes_dict[coupling_name]
+        discr_dict = {}
+        for class_n in set(i for j,i in classes_dict.iteritems()):
+            discr_dict[class_n] = model.predict(X)[:,class_n]
+        #discr = np.asarray([j for jdx,j in enumerate(discr_dict[coupling_class])])
+        discr = np.asarray([j/(discr_dict[0][jdx]+discr_dict[coupling_class][jdx]) for jdx,j in enumerate(discr_dict[coupling_class])])
+        #discr = np.asarray([(discr_dict[1][jdx]+discr_dict[2][jdx]) for jdx,j in enumerate(discr_dict[1])])
+    else: discr = model.predict(X)[:,class_number]
+    nEvents = len(discr)
+    print float(len(discr)), sum_original_n_events, 100*float(len(discr))/float(original_n_events),"%"
+    result = {}
+    for cut in cuts:
+        discr_sel = discr[discr >= cut]
+        print "selection efficiency NN cut at %.2f: "%cut ,100*float(len(discr_sel))/float(nEvents)
+        result[cut] = (float(len(discr_sel))/float(original_n_events))
+    return result
+    
 
 def extract_coupling(coupling,val):
     """ extract the numeric value of a coupling in the directory name"""
@@ -108,7 +158,7 @@ coupling_names = []
 
 nevents={"run_01":30000,"run_02":0}
 
-M4b_array = array('d',range(200,1000,50))
+M4b_array = array('d',np.arange(0.1,0.8,0.025))
 
 result_dict = {}
 for m in M4b_array:
@@ -117,10 +167,10 @@ for m in M4b_array:
         result_dict[m][order]=[]
 
 #print result_dict
+dummy_orders = result_dict[0.1].keys()
 
-for m4b,order in result_dict.iteritems():
-    print "m4b >", m4b
-    for o in order.keys():
+
+for o in dummy_orders:
         print "Processing ",o
         ##################
         #
@@ -145,9 +195,13 @@ for m4b,order in result_dict.iteritems():
         sum_original_n_events = 0
         for f in filelist:
             sum_original_n_events += get_Original_nevents(f,nevents)
-        frac_passing_evts = GetEventsPassingCut(filelist,variable_name = "m_c1c2b1b2",xmin=0,xmax=3000, nbins=1000,cut=m4b,original_n_events = sum_original_n_events)
-        result_dict[m4b][o] = [xsec,xsec_error,frac_passing_evts, sum_original_n_events]
+        frac_passing_evts = NN_validate(filelist,class_number=-1,cuts=M4b_array,original_n_events = sum_original_n_events)
+        #result_dict[coupling][extract_coupling_string(coupling,o)] = [xsec,xsec_error,frac_passing_evts, sum_original_n_events]
+        #print frac_passing_evts
+        for m4b in M4b_array:
+            result_dict[m4b][o] = [xsec,xsec_error,frac_passing_evts[m4b], sum_original_n_events]
        
+#print result_dict
 
 sm_xsec_frac_error = 0.1
 sm_xsec_frac_error_300fb = 0.1
@@ -216,7 +270,7 @@ gr_lower_limit = ROOT.TGraph( len(xaxis), xaxis, lower_limits )
 # gr_lower_limit_300fb = ROOT.TGraph( len(xaxis), xaxis, lower_limits_300fb )
 # gr_lower_limit_300fb.SetLineStyle(2)
  
-mg = ROOT.TMultiGraph("mg",";M_{4b}^{sel} [GeV];%s [TeV^{-2}]"%convertToLatex(args.coupling))
+mg = ROOT.TMultiGraph("mg",";NN output;%s [TeV^{-2}]"%convertToLatex(args.coupling))
 mg.Add(gr_upper_limit,"l")
 mg.Add(gr_lower_limit,"l")
 mg.Add(gr_limit,"3")
@@ -260,7 +314,7 @@ downpad.cd()
 ROOT.gPad.SetMargin(0.15,0.05,0.25,0.01)
 gr_xsec = ROOT.TGraphErrors(len(xaxis), xaxis, array("d",[i*1000 for i in sm_cross_section_array]), array("d",[0]*len(xaxis)),array("d",[i*1000 for i in sm_cross_section_error_array]) )
 gr_xsec.SetFillColorAlpha(1,0.7)
-mg2 = ROOT.TMultiGraph("mg2",";M_{4b}^{sel} [GeV];cross section [fb]")
+mg2 = ROOT.TMultiGraph("mg2",";NN output;cross section [fb]")
 mg2.Add(gr_xsec,"3")
 mg2.Draw("AC")
 mg2.GetYaxis().SetTitleSize(0.095)
@@ -276,15 +330,15 @@ l2.SetFillStyle(0)
 l2.SetBorderSize(0)
 l2.SetTextFont(42)
 l2.SetTextSize(0.09)
-l2.AddEntry(gr_xsec,"#splitline{SM cross section after}{M_{4b} > M_{4b}^{sel}}","f")
+l2.AddEntry(gr_xsec,"#splitline{SM cross section after}{NN output > NN^{sel}}","f")
 l2.Draw("same")
 
 
-if not os.path.isdir(args.InputDir+ "/LimitsVsSensitiveVariable"): os.mkdir(args.InputDir+ "/LimitsVsSensitiveVariable")
+if not os.path.isdir(args.InputDir+ "/LimitsVsNNOutput"): os.mkdir(args.InputDir+ "/LimitsVsNNOutput")
     
-c.SaveAs('%s/LimitsVsSensitiveVariable_%s.png'%(args.InputDir+ "/LimitsVsSensitiveVariable",args.coupling))
-c.SaveAs('%s/LimitsVsSensitiveVariable_%s.pdf'%(args.InputDir+ "/LimitsVsSensitiveVariable",args.coupling))   
-c.SaveAs('%s/LimitsVsSensitiveVariable_%s.C'%(args.InputDir+ "/LimitsVsSensitiveVariable",args.coupling))   
-    
+c.SaveAs('%s/LimitsVsNNOutput_%s.png'%(args.InputDir+ "/LimitsVsNNOutput",args.coupling))
+c.SaveAs('%s/LimitsVsNNOutput_%s.pdf'%(args.InputDir+ "/LimitsVsNNOutput",args.coupling))   
+c.SaveAs('%s/LimitsVsNNOutput_%s.C'%(args.InputDir+ "/LimitsVsNNOutput",args.coupling))   
+      
  
 
